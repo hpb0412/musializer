@@ -12,5 +12,5 @@ odin run ./musializer.odin -file -out:./build/musicalizer
 
 ## Todo
 
-1. [ ] Music visualizer + FFT (Fast Fourier Transform)
-2. [ ] Hot reloading
+1. [x] Music visualizer + FFT (Fast Fourier Transform)
+2. [ ] Hot code reloading
