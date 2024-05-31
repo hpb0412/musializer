@@ -1,117 +1,91 @@
 package main
 
 import "base:runtime"
-import "core:c"
-import "core:c/libc"
 import "core:dynlib"
 import "core:fmt"
-import "core:math"
-import "core:math/cmplx"
-import "core:mem"
 import "core:os"
 import "core:strings"
+
 import rl "vendor:raylib"
-
-
-cexp :: proc(x: f32) -> complex64 {
-	// return cast(complex64)math.cos(x) + (1i * cast(complex64)math.sin(x))
-	return cmplx.exp(1i * cast(complex64)x)
-}
-
-fft :: proc(inp: []f32, stride: uint, n: uint, out: []complex64) {
-	assert(n > 0)
-
-	if n == 1 {
-		out[0] = inp[0]
-		return
-	}
-
-	half := n / 2
-
-	// even
-	fft(inp[:], stride * 2, half, out[:])
-	// odd
-	fft(inp[stride:], stride * 2, half, out[half:])
-
-	for k := 0; k < cast(int)half; k += 1 {
-		t := cast(f32)k / cast(f32)n
-		v := cexp(-2 * math.PI * t) * out[k + cast(int)half]
-		e := out[k]
-		out[k] = e + v
-		out[k + cast(int)half] = e - v
-	}
-}
-
-Frame :: struct {
-	left:  f32,
-	right: f32,
-}
 
 SCREEN_WIDTH_PX :: 800
 SCREEN_HEIGHT_PX :: 600
-// ARR_LENGTH :: 4800
-// global_frames: [ARR_LENGTH]Frame
-// global_frames_count: u32 = 0
 
-// N :: 256
-N :: (1 << 14) // 16384
-inp: [N]f32
-out: [N]complex64
-max_amp: f32 = 0
-
-amp :: proc(c: complex64) -> f32 {
-	a := abs(real(c))
-	b := abs(imag(c))
-	if a < b {
-		return b
-	} else {
-		return a
-	}
+Plug :: struct {
+	version: uint,
+	music:   rl.Music,
 }
 
-callback: rl.AudioCallback = proc "c" (bufferData: rawptr, frames: u32) {
-	context = runtime.default_context()
+library: dynlib.Library
+plug_init: proc(plug: ^Plug, file_path: cstring)
+plug_pre_reload: proc(plug: ^Plug)
+plug_post_reload: proc(plug: ^Plug)
+plug_update: proc(plug: ^Plug)
+plug_terminate: proc(plug: ^Plug)
 
-	frames := frames
+plug: Plug = {}
 
-	if frames > N {
-		frames = N
+load_plugin_proc :: proc() -> bool {
+	if library != nil {
+		did_unloaded := dynlib.unload_library(library)
+		if did_unloaded {
+			fmt.println("[NOTE] Unloaded library!")
+			library = nil
+		} else {
+			fmt.println("[NOTE] Failed to unload_library!")
+		}
 	}
 
-	frameData := transmute([^]Frame)bufferData
-
-	for i in 0 ..< frames {
-		// fmt.println(i)
-		inp[i] = frameData[i].left
+	loaded: bool
+	library, loaded = dynlib.load_library("bin/plug.dylib")
+	if !loaded {
+		fmt.eprintfln("Failed to load plug.dylib: %s", dynlib.last_error())
+		return false
 	}
 
-	// context = runtime.default_context()
-	//
-	// if frames <= ARR_LENGTH - global_frames_count {
-	// 	mem.copy(
-	// 		mem.ptr_offset(&global_frames[0], global_frames_count),
-	// 		bufferData,
-	// 		size_of(Frame) * cast(int)frames,
-	// 	)
-	// 	global_frames_count += frames
-	// } else if frames <= ARR_LENGTH {
-	// 	libc.memmove(
-	// 		&global_frames[0],
-	// 		mem.ptr_offset(&global_frames[0], frames),
-	// 		size_of(Frame) * cast(uint)(ARR_LENGTH - frames),
-	// 	)
-	// 	mem.copy(
-	// 		mem.ptr_offset(&global_frames[0], ARR_LENGTH - frames),
-	// 		bufferData,
-	// 		size_of(Frame) * cast(int)frames,
-	// 	)
-	// } else {
-	// 	mem.copy(&global_frames[0], bufferData, size_of(Frame) * cast(int)frames)
-	// 	global_frames_count = ARR_LENGTH
-	// }
+	plug_init_addr, found1 := dynlib.symbol_address(library, "plug_init")
+	if !found1 {
+		fmt.eprintfln("Failed to find 'plug_init' in plug.dylib")
+		return false
+	}
+	plug_init = cast(proc(_: ^Plug, _: cstring))plug_init_addr
+
+	plug_update_addr, found2 := dynlib.symbol_address(library, "plug_update")
+	if !found2 {
+		fmt.eprintfln("Failed to find 'plug_update' in plug.dylib")
+		return false
+	}
+	plug_update = cast(proc(_: ^Plug))plug_update_addr
+
+	plug_terminate_addr, found3 := dynlib.symbol_address(library, "plug_terminate")
+	if !found3 {
+		fmt.eprintfln("Failed to find 'plug_terminate' in plug.dylib")
+		return false
+	}
+	plug_terminate = cast(proc(_: ^Plug))plug_terminate_addr
+
+	plug_pre_reload_addr, found4 := dynlib.symbol_address(library, "plug_pre_reload")
+	if !found4 {
+		fmt.eprintfln("Failed to find 'plug_pre_reload' in plug.dylib")
+		return false
+	}
+	plug_pre_reload = cast(proc(_: ^Plug))plug_pre_reload_addr
+
+	plug_post_reload_addr, found5 := dynlib.symbol_address(library, "plug_post_reload")
+	if !found5 {
+		fmt.eprintfln("Failed to find 'plug_post_reload' in plug.dylib")
+		return false
+	}
+	plug_post_reload = cast(proc(_: ^Plug))plug_post_reload_addr
+
+	return true
 }
 
 main :: proc() {
+	if !load_plugin_proc() {
+		fmt.panicf("Failed to load plugin")
+	}
+
 	program := os.args[0]
 	arguments := os.args[1:]
 	if len(arguments) == 0 {
@@ -119,10 +93,10 @@ main :: proc() {
 	}
 
 	rl.SetConfigFlags({.WINDOW_HIGHDPI})
+	rl.SetTargetFPS(60)
+
 	rl.InitWindow(SCREEN_WIDTH_PX, SCREEN_HEIGHT_PX, "Musializer")
 	defer rl.CloseWindow()
-
-	rl.SetTargetFPS(60)
 
 	rl.InitAudioDevice()
 	defer rl.CloseAudioDevice()
@@ -131,78 +105,20 @@ main :: proc() {
 	if errno != runtime.Allocator_Error.None {
 		fmt.panicf("Failed to read value of input file path: %v", errno)
 	}
-	music := rl.LoadMusicStream(file_path)
-	defer rl.UnloadMusicStream(music)
 
-	assert(music.stream.sampleSize == 16)
-	assert(music.stream.channels == 2)
-
-	rl.SetMusicVolume(music, 0.5)
-	rl.AttachAudioStreamProcessor(music, callback)
-	defer rl.DetachAudioStreamProcessor(music, callback)
-
-	rl.PlayMusicStream(music)
-	defer rl.StopMusicStream(music)
+	plug_init(&plug, file_path)
+	defer plug_terminate(&plug)
 
 	for !rl.WindowShouldClose() {
-		rl.UpdateMusicStream(music)
-
-		if rl.IsKeyPressed(rl.KeyboardKey.SPACE) {
-			if rl.IsMusicStreamPlaying(music) {
-				rl.PauseMusicStream(music)
-			} else {
-				rl.ResumeMusicStream(music)
+		if rl.IsKeyPressed(rl.KeyboardKey.R) {
+			plug_pre_reload(&plug)
+			if !load_plugin_proc() {
+				fmt.panicf("Failed to reload plugin")
 			}
+			plug_post_reload(&plug)
 		}
 
-		rl.BeginDrawing()
-		rl.ClearBackground({0x18, 0x18, 0x18, 0xFF})
-
-		fft(inp[:], 1, N, out[:])
-
-		max_amp = 0
-		for i := 0; i < N; i += 1 {
-			a := amp(out[i])
-			if max_amp < a {
-				max_amp = a
-			}
-		}
-
-		// bar_w := cast(i32)math.ceil(cast(f32)SCREEN_WIDTH_PX / cast(f32)global_frames_count)
-		bar_w := cast(i32)math.ceil(cast(f32)SCREEN_WIDTH_PX / N)
-		half_screen := SCREEN_HEIGHT_PX / 2
-
-
-		for i in 0 ..< N {
-			t := amp(out[i]) / max_amp
-			bar_h := cast(f32)half_screen * t
-			rl.DrawRectangle(
-				i32(i) * bar_w,
-				i32(half_screen) - i32(bar_h),
-				bar_w,
-				i32(bar_h),
-				rl.BLUE,
-			)
-		}
-
-		// for i in 0 ..< cast(i32)global_frames_count {
-		// 	t := global_frames[i].left
-		// 	bar_h := cast(f32)half_screen * t
-		//
-		// 	if t > 0 {
-		// 		rl.DrawRectangle(
-		// 			i * bar_w,
-		// 			cast(i32)half_screen - cast(i32)bar_h,
-		// 			bar_w,
-		// 			cast(i32)bar_h,
-		// 			rl.BLUE,
-		// 		)
-		// 	} else {
-		// 		rl.DrawRectangle(i * bar_w, cast(i32)half_screen, bar_w, cast(i32)bar_h, rl.BLUE)
-		// 	}
-		// }
-
-		rl.EndDrawing()
+		plug_update(&plug)
 	}
 
 	fmt.println("End of main")
