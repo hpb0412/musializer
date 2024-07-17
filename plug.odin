@@ -123,6 +123,7 @@ plug_update :: proc(plug: ^Plug) {
 	rl.BeginDrawing()
 	rl.ClearBackground({0x18, 0x18, 0x18, 0xFF})
 	// rl.ClearBackground(rl.BEIGE)
+	//rl.ClearBackground(rl.MAROON)
 
 	fft(inp[:], 1, N, out[:])
 
@@ -145,7 +146,8 @@ plug_update :: proc(plug: ^Plug) {
 			i32(half_screen) - i32(bar_h),
 			bar_w,
 			i32(bar_h),
-			rl.BLUE,
+			//rl.BLUE,
+			rl.MAROON,
 		)
 	}
 
