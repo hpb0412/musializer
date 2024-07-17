@@ -3,6 +3,7 @@ package main
 import "base:runtime"
 import "core:dynlib"
 import "core:fmt"
+import "core:mem"
 import "core:os"
 import "core:strings"
 
@@ -82,6 +83,28 @@ load_plugin_proc :: proc() -> bool {
 }
 
 main :: proc() {
+	tracker: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&tracker, context.allocator)
+	context.allocator = mem.tracking_allocator(&tracker)
+	defer {
+		fmt.println("=== evaluating mem leak... ===")
+		if len(tracker.allocation_map) > 0 {
+			fmt.eprintf("=== %v allocations not freed: ===\n", len(tracker.allocation_map))
+			for _, entry in tracker.allocation_map {
+				fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+			}
+		}
+		if len(tracker.bad_free_array) > 0 {
+			fmt.eprintf("=== %v incorrect frees: ===\n", len(tracker.bad_free_array))
+			for entry in tracker.bad_free_array {
+				fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+			}
+		}
+		mem.tracking_allocator_destroy(&tracker)
+		fmt.println("=== evaluate mem leak done ===")
+	}
+
+
 	if !load_plugin_proc() {
 		fmt.panicf("Failed to load plugin")
 	}
@@ -105,6 +128,7 @@ main :: proc() {
 	if errno != runtime.Allocator_Error.None {
 		fmt.panicf("Failed to read value of input file path: %v", errno)
 	}
+    defer delete(file_path)
 
 	plug_init(&plug, file_path)
 	defer plug_terminate(&plug)
