@@ -134,7 +134,7 @@ plug_update :: proc(plug: ^Plug) {
 	}
 
 	STEP :: 1.06
-	bar_count := math.log10((f32(N) / f32(20))) / math.log10(f32(1.06))
+	bar_count := math.log10((f32(N) / f32(20))) / math.log10(f32(STEP))
 
 	scale := rl.GetWindowScaleDPI()
 	w := f32(rl.GetRenderWidth()) / scale[0]
@@ -145,8 +145,15 @@ plug_update :: proc(plug: ^Plug) {
 	//for i in 0 ..< N {
 	//	t := amp(out[i]) / max_amp
 	j: i32 = 0
-	for f: f32 = 20.0; f < N; f *= f32(1.06) {
-		t := amp(out[int(math.floor(f))]) / max_amp
+	for f: f32 = 20.0; f < N; f *= f32(STEP) {
+		f_next := f * STEP
+		avg: f32 = 0
+		for i := i32(f); i < N && i < i32(f_next); i += 1 {
+			avg += amp(out[i])
+		}
+		avg /= f32(i32(f_next) - i32(f) + 1)
+
+		t := avg / max_amp
 
 		bar_h := f32(half_screen) * t
 		rl.DrawRectangle(
