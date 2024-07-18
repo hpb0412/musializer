@@ -1,6 +1,7 @@
 package plug
 
 import "base:runtime"
+import "core:c/libc"
 import "core:fmt"
 import "core:math"
 import "core:math/cmplx"
@@ -68,14 +69,11 @@ out: [N]complex64
 callback: rl.AudioCallback = proc "c" (bufferData: rawptr, frames: u32) {
 	context = runtime.default_context()
 
-	frames := frames
-
-	if frames > N {frames = N}
-
 	frameData := transmute([^]Frame)bufferData
 
 	for i in 0 ..< frames {
-		inp[i] = frameData[i].left
+		libc.memmove(&inp[0], mem.ptr_offset(&inp[0], 1), (N - 1) * size_of(inp[0]))
+		inp[N - 1] = frameData[i].left
 	}
 }
 
@@ -135,20 +133,33 @@ plug_update :: proc(plug: ^Plug) {
 		}
 	}
 
-	bar_w := i32(math.ceil(cast(f32)SCREEN_WIDTH_PX / N))
-	half_screen := SCREEN_HEIGHT_PX / 2
+	STEP :: 1.06
+	bar_count := math.log10((f32(N) / f32(20))) / math.log10(f32(1.06))
 
-	for i in 0 ..< N {
-		t := amp(out[i]) / max_amp
+	scale := rl.GetWindowScaleDPI()
+	w := f32(rl.GetRenderWidth()) / scale[0]
+	h := f32(rl.GetRenderHeight()) / scale[1]
+	bar_w := i32(math.ceil(w / bar_count))
+	half_screen := i32(h / 2)
+
+	//for i in 0 ..< N {
+	//	t := amp(out[i]) / max_amp
+	j: i32 = 0
+	for f: f32 = 20.0; f < N; f *= f32(1.06) {
+		t := amp(out[int(math.floor(f))]) / max_amp
+
 		bar_h := f32(half_screen) * t
 		rl.DrawRectangle(
-			i32(i) * bar_w,
+			j * bar_w,
 			i32(half_screen) - i32(bar_h),
 			bar_w,
 			i32(bar_h),
 			//rl.BLUE,
-			rl.MAROON,
+			//rl.MAROON,
+			rl.GOLD,
 		)
+
+		j += 1
 	}
 
 	rl.EndDrawing()
