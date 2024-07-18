@@ -118,6 +118,11 @@ plug_update :: proc(plug: ^Plug) {
 		}
 	}
 
+	if rl.IsKeyPressed(rl.KeyboardKey.Q) {
+		rl.StopMusicStream(plug.music)
+		rl.PlayMusicStream(plug.music)
+	}
+
 	rl.BeginDrawing()
 	rl.ClearBackground({0x18, 0x18, 0x18, 0xFF})
 	// rl.ClearBackground(rl.BEIGE)
