@@ -69,20 +69,21 @@ out: [N]complex64
 callback: rl.AudioCallback = proc "c" (bufferData: rawptr, frames: u32) {
 	context = runtime.default_context()
 
-	frameData := transmute([^]Frame)bufferData
+	//frameData := transmute([^]Frame)bufferData
+	frameData := transmute([^][2]f32)bufferData
 
 	for i in 0 ..< frames {
 		libc.memmove(&inp[0], mem.ptr_offset(&inp[0], 1), (N - 1) * size_of(inp[0]))
-		inp[N - 1] = frameData[i].left
+		inp[N - 1] = frameData[i][0]
 	}
 }
 
 @(export)
 plug_init :: proc(plug: ^Plug, file_path: cstring) {
 	plug.music = rl.LoadMusicStream(file_path)
+	//assert(plug.music.stream.sampleSize == 16)
+    assert(plug.music.stream.channels == 2)
 
-	assert(plug.music.stream.sampleSize == 16)
-	assert(plug.music.stream.channels == 2)
 	rl.SetMusicVolume(plug.music, 0.5)
 
 	rl.AttachAudioStreamProcessor(plug.music.stream, callback)
@@ -121,6 +122,18 @@ plug_update :: proc(plug: ^Plug) {
 	if rl.IsKeyPressed(rl.KeyboardKey.Q) {
 		rl.StopMusicStream(plug.music)
 		rl.PlayMusicStream(plug.music)
+	}
+
+	if rl.IsFileDropped() {
+		dropped_files := rl.LoadDroppedFiles()
+		if dropped_files.count > 0 {
+			file_path := dropped_files.paths[0]
+			rl.StopMusicStream(plug.music)
+			rl.UnloadMusicStream(plug.music)
+
+            plug_init(plug, file_path)
+		}
+		rl.UnloadDroppedFiles(dropped_files)
 	}
 
 	rl.BeginDrawing()
